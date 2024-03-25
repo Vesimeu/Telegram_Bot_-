@@ -3,7 +3,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiogram.utils import executor
 from database_handler import DatabaseHandler
-from utils import is_vk_link
+from utils import is_vk_link, is_yandex_or_google_disk_link
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -13,6 +13,8 @@ class QuizState(StatesGroup):
     QUESTION = State()
     ANSWER = State()
     PHOTO = State()
+    PRESENTATION = State()
+    SOCIAL = State()
 
 class TelegramBot:
     def __init__(self, token_file):
@@ -242,14 +244,93 @@ class TelegramBot:
                     data['question_idx'] = question_idx + 1
                 else:
                     await message.answer("Викторина завершена. Переходим к следующему этапу.")
-                    # await self.stage_4(message)
-            await state.finish()
+                    await state.finish()  # Завершаем состояние FSM
+                    await self.stage_4(message, state)  # Переходим к следующему этапу
 
         async with state.proxy() as data:
             data['question_idx'] = 0
         await ask_question(questions[0]["question"], questions[0]["options"])
 
         self.dp.register_message_handler(process_answer_msg, state=QuizState.ANSWER)
+
+    async def stage_4(self, message: types.Message, state: FSMContext):
+        await message.answer("Добро пожаловать на четвертый этап конкурса! Загрузите презентацию сюда:")
+
+        # Ожидаем ответа пользователя
+        @self.dp.message_handler(content_types=types.ContentType.TEXT, state=QuizState.PRESENTATION)
+        async def process_presentation_link(message: types.Message, state: FSMContext):
+            presentation_link = message.text.strip()
+
+            # Проверяем, является ли ссылка ссылкой на Яндекс или Google Диск
+            if not is_yandex_or_google_disk_link(presentation_link):
+                await message.answer("Неверный формат ссылки. Пожалуйста, отправьте ссылку на Яндекс или Google Диск.")
+                return
+
+            # Добавляем ссылку в базу данных
+            user_id = str(message.from_user.id)
+            self.db_handler.add_presentation_link(user_id, presentation_link)
+
+            # Добавляем 5 баллов за прохождение этапа
+            self.db_handler.add_points(user_id, 5)
+
+            await message.answer(
+                "Спасибо! Ваша ссылка на презентацию успешно добавлена. Переходим к завершающему этапу конкурса.")
+
+            # Переходим к завершающему этапу конкурса
+            await self.stage_5(message, state)
+
+        await QuizState.PRESENTATION.set()
+
+    async def stage_5(self, message: types.Message, state: FSMContext):
+        await message.answer(
+            "Добро пожаловать на пятый этап конкурса! Придумайте и реализуйте со своими единомышленниками полезное дело.")
+
+        await message.answer(
+            "Например, можно смастерить скворечник, прибраться во дворе, помочь бабушке из соседнего подъезда. "
+            "Разместите пост на своей страничке или в группе отделения с описанием и фотографией социально-значимого дела. "
+            "Это может быть общий пост для всей вашей команды. Не забудьте указать своё первичное отделение и хештеги: #ДвижениеПервых59 #КвестОтделений59. "
+            "Ждём ссылку от каждого участника команды, чтобы чат-бот посчитал вам баллы. Отправьте скорее!"
+        )
+
+        # Ожидаем ответа пользователя
+        @self.dp.message_handler(content_types=types.ContentType.TEXT, state=QuizState.SOCIAL)
+        async def process_social_link(message: types.Message, state: FSMContext):
+            social_link = message.text.strip()
+
+            # Проверяем, является ли ссылка ссылкой из ВК
+            if not is_vk_link(social_link):
+                await message.answer("Неверный формат ссылки. Пожалуйста, отправьте ссылку на пост из ВКонтакте.")
+                return
+
+            # Добавляем ссылку в базу данных
+            user_id = str(message.from_user.id)
+            self.db_handler.add_social_link(user_id, social_link)
+            self.db_handler.add_points(user_id, 5)
+
+            await message.answer("Спасибо! Ваша ссылка на социально-значимое дело успешно добавлена.")
+
+            # Переходим к завершающему этапу конкурса
+            await self.finish_quiz(message, state)
+
+        await QuizState.SOCIAL.set()
+
+    async def finish_quiz(self, message: types.Message, state: FSMContext):
+        user_id = str(message.from_user.id)
+        user = self.db_handler.get_user(user_id)
+
+        if user:
+            response = f"Результаты конкурса для пользователя с ID {user_id}:\n"
+            response += f"Муниципальный код: {user[1]}\n"
+            response += f"Ссылка на первый этап: {user[2]}\n"
+            response += f"Ссылка на второй этап: {user[3]}\n"
+            response += f"Ссылка на четвертый этап: {user[4]}\n"
+            response += f"Ссылка на пятый этап (социально-значимое дело): {user[5]}\n"
+            response += f"Набранные баллы: {user[6]}\n"
+        else:
+            response = "Пользователь не найден в базе данных."
+
+        await message.answer(response)
+        await state.finish()
 
 
 if __name__ == "__main__":

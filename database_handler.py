@@ -66,5 +66,17 @@ class DatabaseHandler:
                                WHERE user_id = ?''', (new_points, user_id))
         self.connection.commit()
 
+    def add_presentation_link(self, user_id, link):
+        self.cursor.execute('''UPDATE users
+                               SET stage_4_link = ?
+                               WHERE user_id = ?''', (link, user_id))
+        self.connection.commit()
+
+    def add_social_link(self, user_id, link):
+        self.cursor.execute('''UPDATE users
+                               SET stage_5_link = ?
+                               WHERE user_id = ?''', (link, user_id))
+        self.connection.commit()
+
     def close(self):
         self.connection.close()
