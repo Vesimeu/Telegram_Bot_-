@@ -41,5 +41,30 @@ class DatabaseHandler:
                                WHERE user_id = ?''', (user_id,))
         return self.cursor.fetchone()
 
+    def is_user_registered(self, user_id):
+        self.cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+        return self.cursor.fetchone() is not None
+
+    def add_video_link(self, user_id, link):
+        self.cursor.execute('''UPDATE users
+                               SET stage_1_link = ?
+                               WHERE user_id = ?''', (link, user_id))
+        self.connection.commit()
+
+    def add_photo_link(self, user_id, link):
+        self.cursor.execute('''UPDATE users
+                               SET stage_2_link = ?
+                               WHERE user_id = ?''', (link, user_id))
+        self.connection.commit()
+
+    def add_points(self, user_id, points):
+        user = self.get_user(user_id)
+        current_points = user[6] if user else 0
+        new_points = current_points + points
+        self.cursor.execute('''UPDATE users
+                               SET points = ?
+                               WHERE user_id = ?''', (new_points, user_id))
+        self.connection.commit()
+
     def close(self):
         self.connection.close()
