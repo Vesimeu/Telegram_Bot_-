@@ -134,15 +134,29 @@ class TelegramBot:
             district_name = self.district_codes[district_code]
             self.db_handler.add_user(user_id, district_name)
 
-            await message.answer("Спасибо! Вы успешно зарегистрировались. Теперь приступим к первому этапу конкурса.")
+            await message.answer("Спасибо! Теперь введите название вашего учреждения.")
 
             # Удаляем обработчик после завершения этапа выбора муниципального округа
             self.dp.message_handlers.unregister(process_district_code)
 
-            # Переходим к первому этапу конкурса
-            await self.stage_1(message, state)
+            # Регистрируем обработчик для этапа ввода названия учреждения
+            @self.dp.message_handler(content_types=types.ContentType.TEXT, state="*")
+            async def process_institution_name(message: types.Message, state: FSMContext):
+                institution_name = message.text.strip()
 
-        await state.finish()
+                # Записываем название учреждения в базу данных
+                self.db_handler.update_institution_name(user_id, institution_name)
+
+                await message.answer(
+                    "Спасибо! Вы успешно зарегистрировались. Теперь приступим к первому этапу конкурса.")
+
+                # Удаляем обработчик после завершения этапа ввода названия учреждения
+                self.dp.message_handlers.unregister(process_institution_name)
+
+                # Переходим к первому этапу конкурса
+                await self.stage_1(message, state)
+
+            await state.finish()
 
     async def stage_1(self, message: types.Message, state: FSMContext):
         await message.answer("Добро пожаловать на первый этап конкурса!")
@@ -165,9 +179,13 @@ class TelegramBot:
             # Добавляем ссылку в базу данных
             user_id = str(message.from_user.id)
             self.db_handler.add_video_link(user_id, video_link)
+            print(user_id)
             self.db_handler.add_points(user_id, 5)
 
             await message.answer("Спасибо! Ваша ссылка на видео успешно добавлена. Переходим к следующему этапу.")
+
+            # Переходим ко второму этапу конкурса
+            await state.finish()
 
             # Переходим ко второму этапу конкурса
             await self.stage_2(message, state)
@@ -243,7 +261,9 @@ class TelegramBot:
                     await ask_question(questions[question_idx + 1]["question"], questions[question_idx + 1]["options"])
                     data['question_idx'] = question_idx + 1
                 else:
-                    await message.answer("Викторина завершена. Переходим к следующему этапу.")
+                    # await message.answer("Викторина завершена. Переходим к следующему этапу.")
+                    await message.answer("Викторина завершена. Переходим к следующему этапу...",
+                                         reply_markup=types.ReplyKeyboardRemove())
                     await state.finish()  # Завершаем состояние FSM
                     await self.stage_4(message, state)  # Переходим к следующему этапу
 
@@ -254,7 +274,7 @@ class TelegramBot:
         self.dp.register_message_handler(process_answer_msg, state=QuizState.ANSWER)
 
     async def stage_4(self, message: types.Message, state: FSMContext):
-        await message.answer("Добро пожаловать на четвертый этап конкурса! Загрузите презентацию сюда:")
+        await message.answer("Добро пожаловать на четвертый этап конкурса! 4.	Совет Первых в презентации. Создай презентацию из 4-5 слайдов в формате .pptx или .pdf. В презентации необходимо отразить деятельность твоего первичного отделения и совета Первых первичного отделения. Отправляй ссылку на презентацию на Яндекс или Google Диск сюда, мы с радостью познакомимся с вашим отделением чуть ближе!")
 
         # Ожидаем ответа пользователя
         @self.dp.message_handler(content_types=types.ContentType.TEXT, state=QuizState.PRESENTATION)
@@ -304,8 +324,11 @@ class TelegramBot:
 
             # Добавляем ссылку в базу данных
             user_id = str(message.from_user.id)
+
+            print(social_link, " ", user_id)
+
             self.db_handler.add_social_link(user_id, social_link)
-            self.db_handler.add_points(user_id, 5)
+            self.db_handler.add_points(user_id = user_id, points=5)
 
             await message.answer("Спасибо! Ваша ссылка на социально-значимое дело успешно добавлена.")
 
@@ -321,11 +344,12 @@ class TelegramBot:
         if user:
             response = f"Результаты конкурса для пользователя с ID {user_id}:\n"
             response += f"Муниципальный код: {user[1]}\n"
-            response += f"Ссылка на первый этап: {user[2]}\n"
-            response += f"Ссылка на второй этап: {user[3]}\n"
-            response += f"Ссылка на четвертый этап: {user[4]}\n"
-            response += f"Ссылка на пятый этап (социально-значимое дело): {user[5]}\n"
-            response += f"Набранные баллы: {user[6]}\n"
+            response += f"Название учреждения: {user[2]}\n"
+            response += f"Ссылка на первый этап: {user[3]}\n"
+            response += f"Ссылка на второй этап: {user[4]}\n"
+            response += f"Ссылка на четвертый этап: {user[5]}\n"
+            response += f"Ссылка на пятый этап (социально-значимое дело): {user[6]}\n"
+            response += f"Набранные баллы: {user[7]}\n"
         else:
             response = "Пользователь не найден в базе данных."
 

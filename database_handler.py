@@ -10,12 +10,19 @@ class DatabaseHandler:
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS users (
                                 user_id INTEGER PRIMARY KEY,
                                 municipal_code TEXT,
+                                institution_name TEXT,
                                 stage_1_link TEXT,
                                 stage_2_link TEXT,
                                 stage_4_link TEXT,
                                 stage_5_link TEXT,
                                 points INTEGER DEFAULT 0
                                 )''')
+        self.connection.commit()
+
+    def update_institution_name(self, user_id, institution_name):
+        self.cursor.execute('''UPDATE users
+                               SET institution_name = ?
+                               WHERE user_id = ?''', (institution_name, user_id))
         self.connection.commit()
 
     def add_user(self, user_id, municipal_code):
@@ -59,7 +66,8 @@ class DatabaseHandler:
 
     def add_points(self, user_id, points):
         user = self.get_user(user_id)
-        current_points = user[6] if user else 0
+        current_points = user[7] if user else 0
+        current_points = int(current_points) if current_points else 0  # Преобразуем в целое число, если возможно
         new_points = current_points + points
         self.cursor.execute('''UPDATE users
                                SET points = ?
