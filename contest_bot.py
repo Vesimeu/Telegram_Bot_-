@@ -7,7 +7,7 @@ from utils import is_vk_link, is_yandex_or_google_disk_link
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-
+from aiogram.types import ChatMember
 
 class QuizState(StatesGroup):
     QUESTION = State()
@@ -15,6 +15,7 @@ class QuizState(StatesGroup):
     PHOTO = State()
     PRESENTATION = State()
     SOCIAL = State()
+    WORD = State()
 
 class TelegramBot:
     def __init__(self, token_file):
@@ -147,16 +148,30 @@ class TelegramBot:
                 # Записываем название учреждения в базу данных
                 self.db_handler.update_institution_name(user_id, institution_name)
 
-                await message.answer(
-                    "Спасибо! Вы успешно зарегистрировались. Теперь приступим к первому этапу конкурса.")
+                await message.answer("Теперь введите ваше ФИО.")
 
                 # Удаляем обработчик после завершения этапа ввода названия учреждения
                 self.dp.message_handlers.unregister(process_institution_name)
 
-                # Переходим к первому этапу конкурса
-                await self.stage_1(message, state)
+                # Регистрируем обработчик для этапа ввода ФИО
+                @self.dp.message_handler(content_types=types.ContentType.TEXT, state="*")
+                async def process_full_name(message: types.Message, state: FSMContext):
+                    full_name = message.text.strip()
 
-            await state.finish()
+                    # Записываем ФИО пользователя в базу данных
+                    self.db_handler.update_full_name(user_id, full_name)
+
+                    await message.answer(
+                        "Спасибо! Вы успешно зарегистрировались. Теперь приступим к первому этапу конкурса.")
+
+                    # Удаляем обработчик после завершения этапа ввода ФИО
+                    self.dp.message_handlers.unregister(process_full_name)
+
+                    # Переходим к первому этапу конкурса
+                    await self.stage_1(message, state)
+
+                await state.finish()
+
 
     async def stage_1(self, message: types.Message, state: FSMContext):
         await message.answer("Добро пожаловать на первый этап конкурса!")
@@ -224,7 +239,7 @@ class TelegramBot:
         await QuizState.PHOTO.set()
 
     async def stage_3(self, message: types.Message, state: FSMContext):
-        await message.answer("Добро пожаловать на третий этап конкурса! Вас ждет викторина.")
+        await message.answer("Добро пожаловать на третий этап конкурса! Вас ждет викторина. Каждый правильный ответ = 1 балл. Удачи!")
 
         questions = [
             {
@@ -328,28 +343,64 @@ class TelegramBot:
             print(social_link, " ", user_id)
 
             self.db_handler.add_social_link(user_id, social_link)
-            self.db_handler.add_points(user_id = user_id, points=5)
+            self.db_handler.add_points(user_id=user_id, points=5)
 
             await message.answer("Спасибо! Ваша ссылка на социально-значимое дело успешно добавлена.")
+
+            # Переходим к следующему этапу конкурса
+            await state.finish()
+
+            # Переходим ко второму этапу конкурса
+            await self.stage_6(message, state)
+
+        await QuizState.SOCIAL.set()
+
+    async def stage_6(self, message: types.Message, state: FSMContext):
+        await message.answer(
+            "Добро пожаловать на шестой этап конкурса!\n"
+            "Завершающее задание квеста! Мы предлагаем поизучать нашу группу ВКонтакте, почитать публикации. "
+            "В одном из постов спрятан ответ на вопрос! Когда был выпущен этот пост, о чём он – это вам предстоит понять самостоятельно.\n"
+            "В международный день гор в группе Движения Первых Пермского края их слышно с любой вершины. Что это?\n"
+            "Напишите ответ одним словом, это существительное в множественном числе. Например: птицы\n"
+            "Теперь отправьте ответ на вопрос."
+        )
+
+        # Ожидаем ответа пользователя
+        @self.dp.message_handler(content_types=types.ContentType.TEXT, state=QuizState.WORD)
+        async def process_answer(message: types.Message, state: FSMContext):
+            answer = message.text.strip()
+
+            # Добавляем ответ в базу данных
+            user_id = str(message.from_user.id)
+
+            self.db_handler.add_answer(user_id, answer)
+            if answer == "голоса".lower():
+                self.db_handler.add_points(user_id=user_id, points=3)
+
+            await message.answer("Спасибо! Ваш ответ успешно добавлен.")
 
             # Переходим к завершающему этапу конкурса
             await self.finish_quiz(message, state)
 
-        await QuizState.SOCIAL.set()
+        await QuizState.WORD.set()
 
     async def finish_quiz(self, message: types.Message, state: FSMContext):
         user_id = str(message.from_user.id)
         user = self.db_handler.get_user(user_id)
 
         if user:
-            response = f"Результаты конкурса для пользователя с ID {user_id}:\n"
+            user_info = await self.bot.get_chat(user_id)
+            username = user_info.username if user_info.username else user_info.first_name
+            response = f"Результаты конкурса для пользователя {username}:\n"
+            response += f"ФИО: {user[3]}\n"
             response += f"Муниципальный код: {user[1]}\n"
             response += f"Название учреждения: {user[2]}\n"
-            response += f"Ссылка на первый этап: {user[3]}\n"
-            response += f"Ссылка на второй этап: {user[4]}\n"
-            response += f"Ссылка на четвертый этап: {user[5]}\n"
-            response += f"Ссылка на пятый этап (социально-значимое дело): {user[6]}\n"
-            response += f"Набранные баллы: {user[7]}\n"
+            response += f"Ссылка на первый этап: {user[4]}\n"
+            response += f"Ссылка на второй этап: {user[5]}\n"
+            response += f"Ссылка на четвертый этап: {user[6]}\n"
+            response += f"Ссылка на пятый этап (социально-значимое дело): {user[7]}\n"
+            response += f"Ответ на шестой этап: {user[8]}\n"
+            response += f"Набранные баллы: {user[9]}\n"
         else:
             response = "Пользователь не найден в базе данных."
 

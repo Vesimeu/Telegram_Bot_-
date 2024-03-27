@@ -11,12 +11,20 @@ class DatabaseHandler:
                                 user_id INTEGER PRIMARY KEY,
                                 municipal_code TEXT,
                                 institution_name TEXT,
+                                full_name TEXT,
                                 stage_1_link TEXT,
                                 stage_2_link TEXT,
                                 stage_4_link TEXT,
                                 stage_5_link TEXT,
+                                stage_6_link TEXT,
                                 points INTEGER DEFAULT 0
                                 )''')
+        self.connection.commit()
+
+    def update_full_name(self, user_id, full_name):
+        self.cursor.execute('''UPDATE users
+                               SET full_name = ?
+                               WHERE user_id = ?''', (full_name, user_id))
         self.connection.commit()
 
     def update_institution_name(self, user_id, institution_name):
@@ -64,9 +72,15 @@ class DatabaseHandler:
                                WHERE user_id = ?''', (link, user_id))
         self.connection.commit()
 
+    def add_answer(self, user_id, answer):
+        self.cursor.execute('''UPDATE users
+                               SET stage_6_link = ?
+                               WHERE user_id = ?''', (answer, user_id))
+        self.connection.commit()
+
     def add_points(self, user_id, points):
         user = self.get_user(user_id)
-        current_points = user[7] if user else 0
+        current_points = user[9] if user else 0
         current_points = int(current_points) if current_points else 0  # Преобразуем в целое число, если возможно
         new_points = current_points + points
         self.cursor.execute('''UPDATE users
